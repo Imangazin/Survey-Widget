@@ -2,8 +2,8 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 
-# Define the log file path
-log_file = 'logs/application.log'
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # one level above src/
+log_file = os.path.join(BASE_DIR, "logs", "application.log")
 
 # Ensure that the directory for the log file exists
 log_dir = os.path.dirname(log_file)
