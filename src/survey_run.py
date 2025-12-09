@@ -10,7 +10,6 @@ import urllib.parse
 
 dotenv_file = dotenv.find_dotenv()
 dotenv.load_dotenv(dotenv_file)
-bspace_url = os.environ["bspace_url"]
 
 def trade_in_refresh_token(config):
     try:
@@ -266,3 +265,47 @@ def user_data_push(access_token, config):
             update_records_as_sent(config, update_query, (student_id, r["surveyId"]))
         else:
             logger.error(f"User-Specific widget push FAILED for student {student_id}. Status: {response.status_code if response else 'No Response'}")
+
+if __name__ == "__main__":
+    try:
+        config = get_config()
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        raise SystemExit(1)
+
+    try:
+        token_response = trade_in_refresh_token(config)
+        if not token_response:
+            logger.error("Token refresh failed. Exiting.")
+            raise SystemExit(1)
+
+        new_refresh = token_response.get("refresh_token")
+        access_token = token_response.get("access_token")
+
+        if not new_refresh or not access_token:
+            logger.error("Token refresh response missing refresh_token or access_token.")
+            raise SystemExit(1)
+
+        # Update refresh token in .env
+        try:
+            set_refresh_token(new_refresh)
+            logger.info("Refresh token updated in .env successfully.")
+        except Exception as e:
+            logger.error(f"Failed to update refresh token in .env: {e}")
+            raise SystemExit(1)
+
+        # Push widget (course-level) data
+        try:
+            widget_data_push(access_token, config)
+        except Exception as e:
+            logger.error(f"Error during widget_data_push: {e}")
+
+        # Push user-specific widget data
+        try:
+            user_data_push(access_token, config)
+        except Exception as e:
+            logger.error(f"Error during user_data_push: {e}")
+
+    except Exception as e:
+        logger.error(f"Fatal error during main execution: {e}")
+        raise SystemExit(1)
