@@ -149,8 +149,14 @@ def widget_data_push(access_token, config):
     widget_success = 0
     widget_error = 0
 
-    # Fetch all surveys where isSent = 0. If there are no new surveys terminate this 
-    new_surveys = "SELECT surveyId, name, description, startDate, endDate, surveyType FROM surveys WHERE isSent = 0;"
+    # Fetch all surveys where isSent = 0 and only active ones (startDate <= NOW() <= endDate).
+    new_surveys = """
+        SELECT surveyId, name, description, startDate, endDate, surveyType
+        FROM surveys
+        WHERE isSent = 0
+          AND startDate <= NOW()
+          AND endDate >= NOW();
+    """
     rows = fetch_data_from_db(config, new_surveys)
     # if not rows:
     #     logger.info("No unsent surveys found.(Custom Widget Data)")
