@@ -146,8 +146,11 @@ def update_records_as_sent(config, query, params=None):
 
 def widget_data_push(access_token, config):
 
+    widget_success = 0
+    widget_error = 0
+
     # Fetch all surveys where isSent = 0. If there are no new surveys terminate this 
-    new_surveys = "SELECT surveyId, name, description, startDate, endDate FROM surveys WHERE isSent = 0;"
+    new_surveys = "SELECT surveyId, name, description, startDate, endDate, surveyType FROM surveys WHERE isSent = 0;"
     rows = fetch_data_from_db(config, new_surveys)
     # if not rows:
     #     logger.info("No unsent surveys found.(Custom Widget Data)")
@@ -160,7 +163,8 @@ def widget_data_push(access_token, config):
             "name": r["name"],
             "description": r["description"],
             "startDate": str(r["startDate"]),
-            "endDate": str(r["endDate"])
+            "endDate": str(r["endDate"]),
+            "surveyType": r["surveyType"]
         })
     
     # If it reached here, then there are new survey.
@@ -170,7 +174,7 @@ def widget_data_push(access_token, config):
     # This will also delete the expired surveys from the widget data.
     # We will push custom Widget Data even there are no new surveys, for clean up. One api call a day.
     active_surveys = """
-        SELECT surveyId, name, description, startDate, endDate
+        SELECT surveyId, name, description, startDate, endDate, surveyType
         FROM surveys
         WHERE isSent = 1
         AND startDate <= NOW()
@@ -184,7 +188,8 @@ def widget_data_push(access_token, config):
             "name": r["name"],
             "description": r["description"],
             "startDate": str(r["startDate"]),
-            "endDate": str(r["endDate"])
+            "endDate": str(r["endDate"]),
+            "surveyType": r["surveyType"]
         })
 
     inner = json.dumps({"Items": items})
@@ -201,13 +206,18 @@ def widget_data_push(access_token, config):
         update_query = "UPDATE surveys SET isSent = 1 WHERE surveyId = %s;"
         for r in rows:
             update_records_as_sent(config, update_query, (r["surveyId"],))
+        widget_success = len(items)
     else:
         logger.error(f"Custom Widget Data push failed. Status: {response.status_code if response else 'No Response'}")
+        widget_error = len(items)
 
-    return response
+    return {"widget_success": widget_success, "widget_error": widget_error}
 
 
 def user_data_push(access_token, config):
+    user_success = 0
+    user_error = 0
+
     new_surveys = "SELECT studentId, surveyId, surveyLink FROM survey_assignments WHERE isSent = 0;"
     rows = fetch_data_from_db(config, new_surveys)
     
@@ -216,7 +226,7 @@ def user_data_push(access_token, config):
     # Deletion of the expired surveys from the user data will be handled in JS (d2l). 
     if not rows:
         logger.info("No unsent surveys-links found.(Custom Widget User Specific Data)")
-        return None
+        return {"user_success": user_success, "user_error": user_error}
 
     for r in rows:
         student_id = r["studentId"]
@@ -263,10 +273,15 @@ def user_data_push(access_token, config):
             logger.info(f"User-Specific widget push SUCCESS for student {student_id}.")
             update_query = "UPDATE survey_assignments SET isSent = 1 WHERE studentId = %s AND surveyId = %s;"
             update_records_as_sent(config, update_query, (student_id, r["surveyId"]))
+            user_success += 1
         else:
             logger.error(f"User-Specific widget push FAILED for student {student_id}. Status: {response.status_code if response else 'No Response'}")
+            user_error += 1
+
+    return {"user_success": user_success, "user_error": user_error}
 
 if __name__ == "__main__":
+    logger.info("=== Survey Widget Run Started ===")
     try:
         config = get_config()
     except Exception as e:
@@ -295,16 +310,17 @@ if __name__ == "__main__":
             raise SystemExit(1)
 
         # Push widget (course-level) data
-        try:
-            widget_data_push(access_token, config)
-        except Exception as e:
-            logger.error(f"Error during widget_data_push: {e}")
+        widget_result = widget_data_push(access_token, config)
 
         # Push user-specific widget data
-        try:
-            user_data_push(access_token, config)
-        except Exception as e:
-            logger.error(f"Error during user_data_push: {e}")
+        user_result = user_data_push(access_token, config)
+
+        if widget_result:
+            logger.info(f"Widget Data Summary: {widget_result['widget_success']} pushed, {widget_result['widget_error']} errors.")
+        if user_result:
+            logger.info(f"User Data Summary: {user_result['user_success']} pushed, {user_result['user_error']} errors.")
+
+        logger.info("=== Survey Widget Run Completed ===")
 
     except Exception as e:
         logger.error(f"Fatal error during main execution: {e}")

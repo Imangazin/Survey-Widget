@@ -7,8 +7,7 @@ function createListItem(item) {
     const el = document.createElement("li");
     el.className = "survey-item";
     el.innerHTML = `
-        <strong>${item.name}</strong>: ${item.description || ""}
-        <a href="${item.url}" target="_blank">Take Survey</a>
+        <strong><a href="${item.url}" target="_blank">${item.name}</a></strong>: ${item.description || ""}
     `;
     return el;
 }
