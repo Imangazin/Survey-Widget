@@ -271,6 +271,7 @@ def user_data_push(access_token, config):
         userId = resolve_user_id(access_token, config["bspace_url"], student_id)
         if not userId:
             logger.error(f"Skipping student {student_id} — could not resolve Brightspace UserId.")
+            user_error += 1
             continue
 
         endpoint = f"{config['bspace_url']}/d2l/api/lp/1.46/{config['orgUnitId']}/widgetdata/{config['widgetId']}/{userId}"
