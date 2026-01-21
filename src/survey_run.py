@@ -149,46 +149,17 @@ def widget_data_push(access_token, config):
     widget_success = 0
     widget_error = 0
 
-    # Fetch all surveys where isSent = 0 and only active ones (startDate <= NOW() <= endDate).
-    new_surveys = """
-        SELECT surveyId, name, description, startDate, endDate, surveyType
-        FROM surveys
-        WHERE isSent = 0
-          AND startDate <= NOW()
-          AND endDate >= NOW();
-    """
-    rows = fetch_data_from_db(config, new_surveys)
-    # if not rows:
-    #     logger.info("No unsent surveys found.(Custom Widget Data)")
-    #     return None
-
-    items = []
-    for r in rows:
-        items.append({
-            "surveyId": r["surveyId"],
-            "name": r["name"],
-            "description": r["description"],
-            "startDate": str(r["startDate"]),
-            "endDate": str(r["endDate"]),
-            "surveyType": r["surveyType"]
-        })
-    
-    # If it reached here, then there are new survey.
-    # But we can not send only new surveys, it will overwrite the custom widget data.
-    # Need to send along the surveys that are currently in the progress too
-    # Fetch surveys already sent (isSent = 1) AND whose startDate <= NOW <= endDate
-    # This will also delete the expired surveys from the widget data.
-    # We will push custom Widget Data even there are no new surveys, for clean up. One api call a day.
+    # Fetch all active surveys (startDate <= NOW() <= endDate) regardless of isSent.
     active_surveys = """
         SELECT surveyId, name, description, startDate, endDate, surveyType
         FROM surveys
-        WHERE isSent = 1
-        AND startDate <= NOW()
-        AND endDate >= NOW();
+        WHERE startDate <= NOW()
+          AND endDate >= NOW();
     """
-    rows_active = fetch_data_from_db(config, active_surveys)
+    rows = fetch_data_from_db(config, active_surveys)
 
-    for r in rows_active:
+    items = []
+    for r in rows:
         items.append({
             "surveyId": r["surveyId"],
             "name": r["name"],
@@ -229,7 +200,6 @@ def user_data_push(access_token, config):
     
     # If no new surveys found, then do not bother to update user specific widget data
     # to avoid calling expensive api calls. 
-    # Deletion of the expired surveys from the user data will be handled in JS (d2l). 
     if not rows:
         logger.info("No unsent surveys-links found.(Custom Widget User Specific Data)")
         return {"user_success": user_success, "user_error": user_error}
