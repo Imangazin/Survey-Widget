@@ -70,7 +70,9 @@ def put_with_auth(endpoint, access_token, data):
         response.raise_for_status()
         return response
     except requests.exceptions.RequestException as e:
-        logger.error(f"PUT {endpoint} failed {response.status_code}: {response.text}")
+        status = getattr(locals().get("response", None), "status_code", "No Status")
+        text = getattr(locals().get("response", None), "text", "")
+        logger.error(f"PUT {endpoint} failed. Status: {status}. {text if text else e}")
         return None
 
 def resolve_user_id(access_token, bspace_url, student_username):
@@ -195,49 +197,61 @@ def user_data_push(access_token, config):
     user_success = 0
     user_error = 0
 
-    new_surveys = "SELECT studentId, surveyId, surveyLink FROM survey_assignments WHERE isSent = 0;"
-    rows = fetch_data_from_db(config, new_surveys)
-    
-    # If no new surveys found, then do not bother to update user specific widget data
-    # to avoid calling expensive api calls. 
-    if not rows:
-        logger.info("No unsent surveys-links found.(Custom Widget User Specific Data)")
+    # 1) Students with NEW (unsent) survey links
+    new_students_q = """
+        SELECT DISTINCT studentId
+        FROM survey_assignments
+        WHERE isSent = 0;
+    """
+    new_students = fetch_data_from_db(config, new_students_q)
+
+    # 2) Students with EXPIRED surveys already sent (isSent=1 but survey endDate < NOW)
+    expired_students_q = """
+        SELECT DISTINCT sa.studentId
+        FROM survey_assignments sa
+        JOIN surveys s ON sa.surveyId = s.surveyId
+        WHERE sa.isSent = 1
+          AND s.endDate < NOW();
+    """
+    expired_students = fetch_data_from_db(config, expired_students_q)
+
+    # Union of studentIds needing an update (new assignments OR expired clean-up)
+    student_ids = set()
+    for r in new_students:
+        student_ids.add(r["studentId"])
+    for r in expired_students:
+        student_ids.add(r["studentId"])
+
+    if not student_ids:
+        logger.info("No user-specific updates needed (no new surveys and no expirations).")
         return {"user_success": user_success, "user_error": user_error}
 
-    for r in rows:
-        student_id = r["studentId"]
-        items = []
-        
-        items.append({
-            "surveyId": r["surveyId"],
-            "url": r["surveyLink"]
-        })
+    # For each affected student, push ONLY the ACTIVE surveys (this removes expirations)
+    for student_id in student_ids:
 
-        # --- Fetch active surveys for this student:
-        # if there are new surveys for user, then we should also add the current surveys
-        # to avoid overwriting the use specific widget data
-        active_surveys = """
+        # Fetch all ACTIVE survey links for this student (include both sent and unsent assignments)
+        active_links_q = """
             SELECT sa.surveyId, sa.surveyLink
             FROM survey_assignments sa
             JOIN surveys s ON sa.surveyId = s.surveyId
             WHERE sa.studentId = %s
-              AND sa.isSent = 1
               AND s.startDate <= NOW()
               AND s.endDate >= NOW();
         """
-        active_rows = fetch_data_from_db(config, active_surveys, (student_id,))
+        active_rows = fetch_data_from_db(config, active_links_q, (student_id,))
 
+        items = []
         for a in active_rows:
             items.append({
                 "surveyId": a["surveyId"],
                 "url": a["surveyLink"]
             })
 
-
-        # Build JSON payload for Brightspace
+        # Build Brightspace double-encoded payload
         inner = json.dumps({"Items": items})
         payload = {"Data": inner}
 
+        # Resolve Brightspace UserId from username/studentId
         userId = resolve_user_id(access_token, config["bspace_url"], student_id)
         if not userId:
             logger.error(f"Skipping student {student_id} — could not resolve Brightspace UserId.")
@@ -246,11 +260,31 @@ def user_data_push(access_token, config):
 
         endpoint = f"{config['bspace_url']}/d2l/api/lp/1.46/{config['orgUnitId']}/widgetdata/{config['widgetId']}/{userId}"
         response = put_with_auth(endpoint, access_token, payload)
+
         if response and response.status_code in (200, 201, 204):
-            logger.info(f"User-Specific widget push SUCCESS for student {student_id}.")
-            update_query = "UPDATE survey_assignments SET isSent = 1 WHERE studentId = %s AND surveyId = %s;"
-            update_records_as_sent(config, update_query, (student_id, r["surveyId"]))
+            logger.info(f"User-Specific widget push SUCCESS for student {student_id}. Active items: {len(items)}")
             user_success += 1
+
+            # Mark newly sent assignments as sent (isSent=0 -> 1) for this student.
+            # This does not change expired rows; it just acknowledges new ones were pushed.
+            update_new_q = """
+                UPDATE survey_assignments
+                SET isSent = 1
+                WHERE studentId = %s
+                  AND isSent = 0;
+            """
+            update_records_as_sent(config, update_new_q, (student_id,))
+
+            # Mark expired previously-sent assignments as cleaned so they don't trigger cleanup every day
+            mark_expired_q = """
+                UPDATE survey_assignments sa
+                JOIN surveys s ON sa.surveyId = s.surveyId
+                SET sa.isSent = 2
+                WHERE sa.studentId = %s
+                  AND sa.isSent = 1
+                  AND s.endDate < NOW();
+            """
+            update_records_as_sent(config, mark_expired_q, (student_id,))
         else:
             logger.error(f"User-Specific widget push FAILED for student {student_id}. Status: {response.status_code if response else 'No Response'}")
             user_error += 1
