@@ -151,7 +151,7 @@ async function getWidgetData() {
 
         return { generalData, userData };
     } catch (e) {
-        console.error("Error loading widget data:", e);
+        //console.error("Error loading widget data:", e);
         return { generalData: [], userData: [] };
     }
 }
