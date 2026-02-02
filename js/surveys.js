@@ -1,5 +1,5 @@
-let currentIndex = 1;
-let surveysData = [];
+// let currentIndex = 1;
+// let surveysData = [];
 let widgetId = ;
 let orgUnitId = ;
 

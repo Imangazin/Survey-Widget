@@ -81,7 +81,7 @@ def resolve_user_id(access_token, bspace_url, student_username):
     Returns integer UserId or None.
     """
     encoded_username = urllib.parse.quote(str(student_username))
-    endpoint = f"{bspace_url}/d2l/api/lp/1.46/users/?userName={encoded_username}"
+    endpoint = f"{bspace_url}/d2l/api/lp/1.46/users/?orgDefinedId={encoded_username}"
 
     response = get_with_auth(endpoint, access_token)
     if not response:
