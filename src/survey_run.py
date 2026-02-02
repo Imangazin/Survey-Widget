@@ -199,9 +199,11 @@ def user_data_push(access_token, config):
 
     # 1) Students with NEW (unsent) survey links
     new_students_q = """
-        SELECT DISTINCT studentId
-        FROM survey_assignments
-        WHERE isSent = 0;
+        SELECT DISTINCT sa.studentId
+        FROM survey_assignments sa
+        JOIN surveys s ON sa.surveyId = s.surveyId
+        WHERE sa.isSent = 0
+        AND s.startDate<=NOW();
     """
     new_students = fetch_data_from_db(config, new_students_q)
 
