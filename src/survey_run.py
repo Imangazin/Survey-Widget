@@ -90,7 +90,7 @@ def resolve_user_id(access_token, bspace_url, student_username):
 
     try:
         data = response.json()
-        return data.get("UserId")
+        return data[0].get("UserId")
     except Exception as e:
         logger.error(f"Error parsing Brightspace user lookup for username {student_username}: {e}")
         return None
